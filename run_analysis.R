@@ -1,75 +1,50 @@
-#******************************************************************
- Step 1. Downloads and unzips dataset
-#******************************************************************
+library(reshape2)
 
-library(data.table)
-fileurl = 'https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip'
-if (!file.exists('./UCI HAR Dataset.zip')){
-  download.file(fileurl,'./UCI HAR Dataset.zip', mode = 'wb')
-  unzip("UCI HAR Dataset.zip", exdir = getwd())
+filename <- "getdata_dataset.zip"
+
+## Download and unzip the dataset:
+if (!file.exists(filename)){
+  fileURL <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip "
+  download.file(fileURL, filename, method="curl")
+}  
+if (!file.exists("UCI HAR Dataset")) { 
+  unzip(filename) 
 }
 
-#******************************************************************
- Step 2.Reads and Converts Data
-#******************************************************************
+# Load activity labels + features
+activityLabels <- read.table("UCI HAR Dataset/activity_labels.txt")
+activityLabels[,2] <- as.character(activityLabels[,2])
+features <- read.table("UCI HAR Dataset/features.txt")
+features[,2] <- as.character(features[,2])
 
-features <- read.csv('./UCI HAR Dataset/features.txt', header = FALSE, sep = ' ')
-features <- as.character(features[,2])
+# Extract only the data on mean and standard deviation
+featuresWanted <- grep(".*mean.*|.*std.*", features[,2])
+featuresWanted.names <- features[featuresWanted,2]
+featuresWanted.names = gsub('-mean', 'Mean', featuresWanted.names)
+featuresWanted.names = gsub('-std', 'Std', featuresWanted.names)
+featuresWanted.names <- gsub('[-()]', '', featuresWanted.names)
 
-data.train.x <- read.table('./UCI HAR Dataset/train/X_train.txt')
-data.train.activity <- read.csv('./UCI HAR Dataset/train/y_train.txt', header = FALSE, sep = ' ')
-data.train.subject <- read.csv('./UCI HAR Dataset/train/subject_train.txt',header = FALSE, sep = ' ')
 
-data.train <-  data.frame(data.train.subject, data.train.activity, data.train.x)
-names(data.train) <- c(c('subject', 'activity'), features)
+# Load the datasets
+train <- read.table("UCI HAR Dataset/train/X_train.txt")[featuresWanted]
+trainActivities <- read.table("UCI HAR Dataset/train/Y_train.txt")
+trainSubjects <- read.table("UCI HAR Dataset/train/subject_train.txt")
+train <- cbind(trainSubjects, trainActivities, train)
 
-data.test.x <- read.table('./UCI HAR Dataset/test/X_test.txt')
-data.test.activity <- read.csv('./UCI HAR Dataset/test/y_test.txt', header = FALSE, sep = ' ')
-data.test.subject <- read.csv('./UCI HAR Dataset/test/subject_test.txt', header = FALSE, sep = ' ')
+test <- read.table("UCI HAR Dataset/test/X_test.txt")[featuresWanted]
+testActivities <- read.table("UCI HAR Dataset/test/Y_test.txt")
+testSubjects <- read.table("UCI HAR Dataset/test/subject_test.txt")
+test <- cbind(testSubjects, testActivities, test)
 
-data.test <-  data.frame(data.test.subject, data.test.activity, data.test.x)
-names(data.test) <- c(c('subject', 'activity'), features)
+# merge datasets and add labels
+allData <- rbind(train, test)
+colnames(allData) <- c("subject", "activity", featuresWanted.names)
 
-#******************************************************************
- Step 3.Merges the training and the test sets to create one data set.
-#******************************************************************
+# turn activities & subjects into factors
+allData$activity <- factor(allData$activity, levels = activityLabels[,1], labels = activityLabels[,2])
+allData$subject <- as.factor(allData$subject)
 
-data.all <- rbind(data.train, data.test)
+allData.melted <- melt(allData, id = c("subject", "activity"))
+allData.mean <- dcast(allData.melted, subject + activity ~ variable, mean)
 
-#******************************************************************
- Step 4.-Extracts only the measurements on the mean and standard deviation for each measurement.
-#******************************************************************
-
-mean_std.select <- grep('mean|std', features)
-data.sub <- data.all[,c(1,2,mean_std.select + 2)]
-
-#******************************************************************
- Step 5. Uses descriptive activity names to name the activities in the data set
-#******************************************************************
-
-activity.labels <- read.table('./UCI HAR Dataset/activity_labels.txt', header = FALSE)
-activity.labels <- as.character(activity.labels[,2])
-data.sub$activity <- activity.labels[data.sub$activity]
-
-#******************************************************************
- Step 6. Appropriately labels the data set with descriptive variable names.
-#******************************************************************
-
-name.new <- names(data.sub)
-name.new <- gsub("[(][)]", "", name.new)
-name.new <- gsub("^t", "TimeDomain_", name.new)
-name.new <- gsub("^f", "FrequencyDomain_", name.new)
-name.new <- gsub("Acc", "Accelerometer", name.new)
-name.new <- gsub("Gyro", "Gyroscope", name.new)
-name.new <- gsub("Mag", "Magnitude", name.new)
-name.new <- gsub("-mean-", "_Mean_", name.new)
-name.new <- gsub("-std-", "_StandardDeviation_", name.new)
-name.new <- gsub("-", "_", name.new)
-names(data.sub) <- name.new
-
-#******************************************************************
- Step 7. From the data set in step 4, creates a second, independent tidy data set with the average of each variable for each activity and each subject.
-#******************************************************************
-
-data.tidy <- aggregate(data.sub[,3:81], by = list(activity = data.sub$activity, subject = data.sub$subject),FUN = mean)
-write.table(x = data.tidy, file = "data_tidy.txt", row.names = FALSE)
+write.table(allData.mean, "tidy.txt", row.names = FALSE, quote = FALSE)
